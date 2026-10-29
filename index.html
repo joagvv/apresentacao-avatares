@@ -68,7 +68,22 @@ let tocavaAntesDaCaixa = false;
 const espera = ms => new Promise(r => setTimeout(r, ms));
 const fimDe = v => Math.max(0, (v.duration || 0) - 0.02);
 
-// Online: baixa todos os trechos em segundo plano e usa como blob, para nunca travar
+// Online: se o servidor bloqueia vídeo direto (como o claude.ai), baixa todos os trechos
+// em segundo plano e usa como blob; se não bloqueia (GitHub Pages), toca direto, em streaming
+let modoBlob = !LOCAL;
+function bloqueiaMidia(csp) {
+  return csp.split(',').some(politica => {
+    const d = /(?:^|;)\s*media-src([^;]*)/i.exec(politica) || /(?:^|;)\s*default-src([^;]*)/i.exec(politica);
+    return !!d && !/'self'|\*|https?:/i.test(d[1]);
+  });
+}
+const verificacao = LOCAL ? Promise.resolve() : fetch(location.href, { method: 'HEAD', cache: 'no-store' })
+  .then(r => {
+    const metas = [...document.querySelectorAll('meta[http-equiv]')]
+      .filter(m => /content-security-policy/i.test(m.httpEquiv)).map(m => m.content);
+    modoBlob = bloqueiaMidia([r.headers.get('content-security-policy') || '', ...metas].join(','));
+  })
+  .catch(() => {});
 const blobs = [], baixando = [];
 function baixar(i) {
   if (LOCAL) return Promise.resolve(null);
@@ -85,16 +100,17 @@ async function baixarTodos() { for (let i = 0; i < TOTAL; i++) await baixar(i); 
 // Pronto = o trecho i terminou de carregar neste vídeo (não só o anterior ainda na tela)
 const carregado = (v, i) => v.dataset.seg == i && v.dataset.ok === String(i) && v.readyState >= 2;
 
-// Carrega o trecho i no vídeo v: online pelo blob já baixado, local pelo arquivo
+// Carrega o trecho i no vídeo v: pelo blob no modo blob, senão pelo arquivo direto
 async function carregar(v, i) {
   if (carregado(v, i)) return true;
   if (v._cancelar) v._cancelar();
   v.dataset.seg = i;
   v.dataset.ok = "";
-  if (!LOCAL && !blobs[i]) {
+  await verificacao;
+  if (modoBlob && !blobs[i]) {
     await baixar(i);
-    if (v.dataset.seg != i) return false;   // outro trecho foi pedido enquanto baixava
   }
+  if (v.dataset.seg != i) return false;     // outro trecho foi pedido enquanto esperava
   return abrir(v, i);
 }
 
@@ -362,7 +378,7 @@ palco.classList.add('semcursor');
 
 irPara(0);
 palco.focus();
-baixarTodos();
+verificacao.then(() => { if (modoBlob) baixarTodos(); });
 window.addEventListener('load', () => palco.focus());
 </script>
 </body>
