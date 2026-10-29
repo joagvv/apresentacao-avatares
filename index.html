@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apresentação dos Avatares</title>
+<link rel="icon" href="icone.png">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Tela única: só o vídeo, fundo preto */
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+  #palco { position: fixed; inset: 0; background: #000; outline: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+  #palco.semcursor, #palco.semcursor video { cursor: none; }
+  /* Os dois vídeos ficam empilhados e visíveis; a troca é só de quem está na frente */
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; z-index: 1; pointer-events: none; }
+  video.frente { z-index: 2; }
+
+  /* Caixa de confirmação do reinício (a única coisa além do vídeo) */
+  #fundo { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); cursor: default; }
+  #fundo[hidden] { display: none; }
+  #caixa { background: #16181d; color: #f2f3f5; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 26px 28px 22px; width: min(400px, calc(100vw - 48px)); box-shadow: 0 24px 60px rgba(0,0,0,.6); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #caixa h2 { margin: 0 0 6px; font-size: 19px; font-weight: 600; }
+  #caixa p { margin: 0 0 22px; color: #a9aeb8; font-size: 15px; }
+  #botoes { display: flex; gap: 10px; justify-content: flex-end; }
+  #botoes button { font: inherit; font-size: 15px; padding: 9px 16px; border-radius: 9px; border: 1px solid rgba(255,255,255,.16); background: #23262d; color: #f2f3f5; cursor: pointer; }
+  #botoes button:hover { background: #2c3038; }
+  #botoes button.principal { background: #e5484d; border-color: #e5484d; color: #fff; }
+  #botoes button.principal:hover { background: #ec5d61; }
+  #botoes kbd { font: 12px/1 system-ui, sans-serif; opacity: .7; margin-left: 6px; }
+</style>
+</head>
+<body>
+<div id="palco" tabindex="0">
+  <video id="a" preload="auto" playsinline webkit-playsinline disablepictureinpicture disableremoteplayback></video>
+  <video id="b" preload="auto" playsinline webkit-playsinline disablepictureinpicture disableremoteplayback></video>
+  <div id="fundo" hidden>
+    <div id="caixa" role="alertdialog" aria-modal="true" aria-labelledby="titulo">
+      <h2 id="titulo">Reiniciar a apresentação?</h2>
+      <p>Tem certeza que quer reiniciar? O vídeo volta para o começo.</p>
+      <div id="botoes">
+        <button id="nao" type="button">Cancelar<kbd>Esc</kbd></button>
+        <button id="sim" type="button" class="principal">Reiniciar<kbd>Enter</kbd></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Trecho 0 é a introdução; 1–13 são as falas. Os cortes sem avatar (mesa vazia) foram
+// removidos: cada trecho termina no último quadro do avatar e fica parado ali até o próximo espaço.
+const TOTAL = 14;
+const FIM = TOTAL;                 // parada depois do último trecho: vídeo acabou
+const FADE_MS = 450;               // dissolve das setas
+const arquivo = i => 'videos/' + String(i).padStart(2, '0') + '.mp4';
+const LOCAL = location.protocol === 'file:';
+
+const palco = document.getElementById('palco');
+const fundo = document.getElementById('fundo');
+let vis = document.getElementById('a');      // vídeo na frente
+let oculto = document.getElementById('b');   // vídeo atrás, preparando o próximo trecho
+let parada = 0;      // onde estamos parados: 0 = início, k = fim do trecho k-1
+let trecho = -1;     // trecho tocando agora
+let tocando = false;
+let geracao = 0;     // cada navegação invalida as esperas da anterior
+let tocavaAntesDaCaixa = false;
+
+const espera = ms => new Promise(r => setTimeout(r, ms));
+const fimDe = v => Math.max(0, (v.duration || 0) - 0.02);
+
+// Online: baixa todos os trechos em segundo plano e usa como blob, para nunca travar
+const blobs = [], baixando = [];
+function baixar(i) {
+  if (LOCAL) return Promise.resolve(null);
+  if (!baixando[i]) {
+    baixando[i] = fetch(arquivo(i))
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); })
+      .then(b => (blobs[i] = URL.createObjectURL(b)))
+      .catch(() => { baixando[i] = null; return null; });
+  }
+  return baixando[i];
+}
+async function baixarTodos() { for (let i = 0; i < TOTAL; i++) await baixar(i); }
+
+// Pronto = o trecho i terminou de carregar neste vídeo (não só o anterior ainda na tela)
+const carregado = (v, i) => v.dataset.seg == i && v.dataset.ok === String(i) && v.readyState >= 2;
+
+// Carrega o trecho i no vídeo v: online pelo blob já baixado, local pelo arquivo
+async function carregar(v, i) {
+  if (carregado(v, i)) return true;
+  if (v._cancelar) v._cancelar();
+  v.dataset.seg = i;
+  v.dataset.ok = "";
+  if (!LOCAL && !blobs[i]) {
+    await baixar(i);
+    if (v.dataset.seg != i) return false;   // outro trecho foi pedido enquanto baixava
+  }
+  return abrir(v, i);
+}
+
+// Se o blob falhar ou não existir, tenta o endereço direto (e vice-versa)
+function abrir(v, i) {
+  if (v._cancelar) v._cancelar();
+  return new Promise(resolve => {
+    let acabou = false, tentouBlob = !!blobs[i] || LOCAL, tentouDireto = !blobs[i];
+    const terminar = ok => {
+      if (acabou) return;
+      acabou = true;
+      clearTimeout(relogio);
+      v.removeEventListener('loadeddata', pronto);
+      v.removeEventListener('error', falhou);
+      v._cancelar = null;
+      resolve(ok);
+    };
+    const pronto = () => { v.dataset.ok = i; terminar(true); };
+    const falhou = () => {
+      if (!tentouDireto) {
+        tentouDireto = true;
+        v.src = arquivo(i);
+        v.load();
+        return;
+      }
+      if (tentouBlob) return terminar(false);
+      tentouBlob = true;
+      baixar(i).then(url => {
+        if (acabou) return;
+        if (!url) return terminar(false);
+        v.src = url;
+        v.load();
+      });
+    };
+    // Alguns aparelhos só carregam ao tocar: depois de um tempo segue mesmo assim
+    const relogio = setTimeout(() => terminar(v.readyState >= 1), 15000);
+    v._cancelar = () => terminar(false);
+    v.addEventListener('loadeddata', pronto);
+    v.addEventListener('error', falhou);
+    v.src = blobs[i] || arquivo(i);
+    v.load();
+  });
+}
+
+async function carregarSempre(v, i, g) {
+  while (!(await carregar(v, i))) {
+    await espera(800);
+    if (g !== geracao) return false;
+  }
+  return g === geracao;
+}
+
+function posicionar(v, t) {
+  return new Promise(resolve => {
+    if (Math.abs(v.currentTime - t) < 0.001 && !v.seeking) return resolve();
+    const feito = () => { clearTimeout(relogio); v.removeEventListener('seeked', feito); resolve(); };
+    const relogio = setTimeout(feito, 3000);
+    v.addEventListener('seeked', feito);
+    v.currentTime = t;
+  });
+}
+
+function mostrar(v) {
+  if (v !== vis) { oculto = vis; vis = v; }
+  vis.classList.add('frente');
+  oculto.classList.remove('frente');
+}
+
+// Deixa atrás, no primeiro quadro, o trecho que o próximo espaço vai tocar
+async function prepararProximo(g, i) {
+  if (i >= TOTAL || (vis.dataset.seg == i && vis.currentTime < 0.05)) return;
+  if (await carregarSempre(oculto, i, g)) await posicionar(oculto, 0);
+}
+
+// Dissolve: o novo aparece por cima enquanto imagem e som do anterior somem
+let fadeAtivo = null;
+function pararFade() {
+  if (!fadeAtivo) return;
+  cancelAnimationFrame(fadeAtivo.raf);
+  fadeAtivo.velho.pause();
+  fadeAtivo.velho.volume = 1;
+  fadeAtivo.novo.style.opacity = '';
+  fadeAtivo = null;
+}
+function dissolver(novo) {
+  return new Promise(resolve => {
+    const velho = vis, t0 = performance.now();
+    novo.style.opacity = '0';
+    mostrar(novo);
+    const passo = agora => {
+      const k = Math.min(1, Math.max(0, (agora - t0) / FADE_MS));
+      novo.style.opacity = String(k);
+      velho.volume = 1 - k;
+      if (k < 1) { fadeAtivo.raf = requestAnimationFrame(passo); return; }
+      velho.pause();
+      velho.volume = 1;
+      novo.style.opacity = '';
+      fadeAtivo = null;
+      resolve();
+    };
+    fadeAtivo = { velho, novo, raf: requestAnimationFrame(passo) };
+  });
+}
+
+// Vai direto para uma parada, sem tocar (com fade quando vem das setas)
+async function irPara(p, comFade) {
+  const g = ++geracao;
+  pararFade();
+  const tocava = tocando && !vis.paused;
+  tocando = false;
+  trecho = -1;
+  parada = p;
+  if (!(comFade && tocava)) vis.pause();   // com fade, a fala atual some junto no dissolve
+  oculto.pause();
+  const i = p === 0 ? 0 : p - 1;
+  const v = (!comFade && vis.dataset.seg == i) ? vis : oculto;
+  if (!(await carregarSempre(v, i, g))) return;
+  await posicionar(v, p === 0 ? 0 : fimDe(v));
+  if (g !== geracao) return;
+  v.pause();
+  if (comFade && v !== vis) {
+    await dissolver(v);
+    if (g !== geracao) return;
+  } else {
+    vis.pause();
+    mostrar(v);
+  }
+  prepararProximo(g, p);
+}
+
+// Espaço: solta o próximo trecho
+function tocar() {
+  if (tocando || parada >= FIM) return;
+  pararFade();
+  const g = ++geracao, i = parada;
+  tocando = true;
+  trecho = i;
+  const v = (vis.dataset.seg == i && vis.currentTime < 0.05) ? vis : oculto;
+  // Normalmente já está pronto: toca na hora, ainda dentro do toque da tecla
+  if (carregado(v, i) && v.currentTime < 0.05 && !v.seeking) return iniciar(v, g, i);
+  (async () => {
+    if (!(await carregarSempre(v, i, g))) return;
+    await posicionar(v, 0);
+    if (g === geracao) iniciar(v, g, i);
+  })();
+}
+
+function iniciar(v, g, i) {
+  v.muted = false;
+  const p = v.play();
+  const anterior = vis;
+  mostrar(v);
+  if (anterior !== v) anterior.pause();
+  if (p && p.catch) p.catch(() => { if (g === geracao) tocando = false; });
+  setTimeout(() => { if (g === geracao) prepararProximo(g, i + 1); }, 400);
+}
+
+for (const v of [document.getElementById('a'), document.getElementById('b')]) {
+  v.addEventListener('ended', () => {
+    if (v !== vis || !tocando || v.dataset.seg != trecho) return;
+    tocando = false;
+    parada = trecho + 1;
+    trecho = -1;
+    if (parada < TOTAL && !(carregado(oculto, parada))) prepararProximo(geracao, parada);
+  });
+}
+
+// Setas: voltar um trecho inteiro / avançar um trecho
+function voltar() {
+  if (tocando) irPara(trecho, true);
+  else irPara(Math.max(0, parada - 1), true);
+}
+function avancar() {
+  if (tocando) irPara(trecho + 1, true);
+  else if (parada < FIM) irPara(parada + 1, true);
+}
+
+// R: reinicia; enquanto o vídeo não acabou, pergunta antes
+function pedirReinicio() {
+  if (parada >= FIM && !tocando) return irPara(0);
+  tocavaAntesDaCaixa = tocando && !vis.paused;
+  pararFade();
+  vis.pause();
+  fundo.hidden = false;
+  palco.classList.remove('semcursor');
+  document.getElementById('nao').focus();
+}
+function fecharCaixa(reiniciar) {
+  fundo.hidden = true;
+  palco.focus();
+  esconderCursorDepois();
+  if (reiniciar) irPara(0);
+  else if (tocavaAntesDaCaixa && tocando) vis.play().catch(() => {});
+  tocavaAntesDaCaixa = false;
+}
+document.getElementById('sim').addEventListener('click', () => fecharCaixa(true));
+document.getElementById('nao').addEventListener('click', () => fecharCaixa(false));
+
+function telaCheia() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) return;
+  try {
+    const p = palco.requestFullscreen ? palco.requestFullscreen() : palco.webkitRequestFullscreen && palco.webkitRequestFullscreen();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+function alternarTelaCheia() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (e) {}
+  } else telaCheia();
+}
+
+document.addEventListener('keydown', e => {
+  const k = e.key, c = e.code;
+  if (!fundo.hidden) {
+    if (k === 'Escape' || c === 'KeyN') { e.preventDefault(); fecharCaixa(false); }
+    else if (k === 'Enter' || c === 'KeyS' || c === 'KeyY') { e.preventDefault(); fecharCaixa(true); }
+    else if (k !== 'Tab') e.preventDefault();
+    return;
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (c === 'Space' || k === ' ' || k === 'Spacebar') {
+    e.preventDefault();
+    if (e.repeat) return;
+    tocar();
+    telaCheia();
+  } else if (k === 'ArrowLeft') {
+    e.preventDefault();
+    if (!e.repeat) voltar();
+  } else if (k === 'ArrowRight') {
+    e.preventDefault();
+    if (!e.repeat) avancar();
+  } else if (c === 'KeyR' || k === 'r' || k === 'R') {
+    e.preventDefault();
+    if (!e.repeat) pedirReinicio();
+  } else if (c === 'KeyF' || k === 'f' || k === 'F') {
+    e.preventDefault();
+    if (!e.repeat) alternarTelaCheia();
+  }
+});
+
+// Mouse: clicar só dá foco ao teclado. Toque: tocar avança, deslizar volta/avança.
+let toqueX = null;
+palco.addEventListener('pointerdown', e => {
+  if (!fundo.hidden) return;
+  palco.focus();
+  if (e.pointerType === 'touch') toqueX = e.clientX;
+});
+palco.addEventListener('pointerup', e => {
+  if (!fundo.hidden || e.pointerType !== 'touch' || toqueX === null) return;
+  const dx = e.clientX - toqueX;
+  toqueX = null;
+  if (dx > 60) voltar();
+  else if (dx < -60) avancar();
+  else tocar();
+});
+
+// Cursor some sozinho; aparece só enquanto o mouse se mexe
+let relogioCursor;
+function esconderCursorDepois() {
+  clearTimeout(relogioCursor);
+  relogioCursor = setTimeout(() => { if (fundo.hidden) palco.classList.add('semcursor'); }, 1500);
+}
+palco.addEventListener('mousemove', () => { palco.classList.remove('semcursor'); esconderCursorDepois(); });
+palco.classList.add('semcursor');
+
+irPara(0);
+palco.focus();
+baixarTodos();
+window.addEventListener('load', () => palco.focus());
+</script>
+</body>
+</html>
