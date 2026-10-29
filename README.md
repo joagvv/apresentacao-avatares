@@ -4,6 +4,15 @@ Player de apresentação para o vídeo dos avatares: a introdução e cada fala
 tocam uma de cada vez, e o vídeo só segue quando você aperta **espaço**.
 Na tela aparece só o vídeo.
 
+## Online
+
+**https://joagvv.github.io/apresentacao-avatares/**
+
+Ao abrir, a página baixa a apresentação inteira antes de mostrar, o que leva
+alguns segundos. Depois disso não trava em nenhum momento. A versão online usa
+vídeos otimizados para web (branch `gh-pages`); este repositório (`main`) tem
+os vídeos em qualidade máxima, para rodar no computador.
+
 ## Como rodar no computador (sem internet)
 
 1. Baixe o projeto:
