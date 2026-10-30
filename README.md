@@ -24,7 +24,7 @@ os vídeos em qualidade máxima, para rodar no computador.
    Ele abre no seu navegador padrão (Chrome, Edge, Safari ou Firefox).
 4. Aperte **espaço** para começar. Na primeira vez a página entra em tela cheia.
 
-Não precisa instalar nada nem ter internet. O arquivo `.html`, o `icone.png`
+Não precisa instalar nada nem ter internet. O arquivo `.html`, o `icone-fifa.png`
 e a pasta `videos/` precisam ficar juntos, na mesma estrutura.
 
 > Se o navegador não abrir com dois cliques, arraste o `ABRIR APRESENTACAO.html`
@@ -75,6 +75,6 @@ Os vídeos estão em H.264 + AAC (MP4), que tocam em qualquer navegador e sistem
 
 ```
 ABRIR APRESENTACAO.html   o player (HTML, CSS e JavaScript num arquivo só)
-icone.png                 ícone da aba
+icone-fifa.png            ícone da aba (logo da FIFA)
 videos/00.mp4 … 13.mp4    intro + 13 falas
 ```
