@@ -34,7 +34,7 @@ e a pasta `videos/` precisam ficar juntos, na mesma estrutura.
 
 | Tecla | O que faz |
 |---|---|
-| **Espaço** | Solta a próxima parte (intro ou próxima fala) |
+| **Espaço** | Solta a próxima parte (a intro, que já entra direto na 1ª fala, ou a próxima fala) |
 | **←** | Volta uma parte inteira (com fade) |
 | **→** | Avança uma parte (com fade) |
 | **R** | Reinicia. Enquanto o vídeo não acabou, pergunta antes (**Enter** confirma, **Esc** cancela) |
@@ -46,8 +46,12 @@ No celular ou tablet: tocar na tela avança e deslizar para o lado volta ou avan
 
 O vídeo original foi dividido em 14 partes (`videos/00.mp4` a `videos/13.mp4`):
 
-- `00`: a introdução (0:00 → 0:29.83), que para no logo da Copa 2026.
+- `00`: a introdução (0:00 → 0:29.83), que termina no logo da Copa 2026.
 - `01` a `13`: uma fala de avatar cada.
+
+A introdução emenda direto na primeira fala, num corte seco: o primeiro
+espaço toca as duas em sequência, sem parar no logo. As setas tratam
+intro + primeira fala como uma parte só.
 
 Entre as falas, o vídeo original mostra a mesa vazia por um instante (é aí que
 um avatar troca pelo outro). Esses trechos foram identificados quadro a quadro

@@ -49,7 +49,9 @@
 <script>
 // Trecho 0 é a introdução; 1–13 são as falas. Os cortes sem avatar (mesa vazia) foram
 // removidos: cada trecho termina no último quadro do avatar e fica parado ali até o próximo espaço.
+// A intro emenda direto na primeira fala, num corte seco, sem esperar o espaço.
 const TOTAL = 14;
+const EMENDA = new Set([1]);       // paradas que não param: o trecho seguinte entra sozinho
 const FIM = TOTAL;                 // parada depois do último trecho: vídeo acabou
 const FADE_MS = 450;               // dissolve das setas
 const arquivo = i => 'videos/' + String(i).padStart(2, '0') + '.mp4';
@@ -274,18 +276,23 @@ for (const v of [document.getElementById('a'), document.getElementById('b')]) {
     tocando = false;
     parada = trecho + 1;
     trecho = -1;
+    if (EMENDA.has(parada)) return tocar();
     if (parada < TOTAL && !(carregado(oculto, parada))) prepararProximo(geracao, parada);
   });
 }
 
 // Setas: voltar um trecho inteiro / avançar um trecho
+// (pulando as emendas, já que ali o vídeo não para)
 function voltar() {
-  if (tocando) irPara(trecho, true);
-  else irPara(Math.max(0, parada - 1), true);
+  let p = tocando ? trecho : Math.max(0, parada - 1);
+  while (EMENDA.has(p)) p--;
+  irPara(p, true);
 }
 function avancar() {
-  if (tocando) irPara(trecho + 1, true);
-  else if (parada < FIM) irPara(parada + 1, true);
+  if (!tocando && parada >= FIM) return;
+  let p = tocando ? trecho + 1 : parada + 1;
+  while (EMENDA.has(p)) p++;
+  irPara(p, true);
 }
 
 // R: reinicia; enquanto o vídeo não acabou, pergunta antes
